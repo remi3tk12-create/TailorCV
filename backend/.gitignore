@@ -1,0 +1,5 @@
+node_modules/
+tailorcv.db
+tailorcv.db-journal
+uploads/
+.env
