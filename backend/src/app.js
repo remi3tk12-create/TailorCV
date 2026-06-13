@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import authRouter from './routes/auth.js';
 import cvRouter from './routes/cv.js';
 import companyRouter from './routes/company.js';
+import userRouter from './routes/user.js';
 
 // Convert import.meta.url to __dirname equivalent
 const __filename = fileURLToPath(import.meta.url);
@@ -30,6 +31,7 @@ app.use(express.static(frontendBuildPath));
 app.use('/api/auth', authRouter);
 app.use('/api/cv', cvRouter);
 app.use('/api/company', companyRouter);
+app.use('/api/user', userRouter);
 
 // API Health Check
 app.get('/api/health', (req, res) => {
