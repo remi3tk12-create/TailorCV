@@ -19,17 +19,33 @@ if (!fs.existsSync(uploadDir)) {
 
 /**
  * Generate a new tailored CV
+ * POST /api/cv/generate
  */
 export async function generateCv(req, res, next) {
-  const { jobDescription, skills, companyWebsiteUrl, companyName, jobTitle, experiences } = req.body;
+  // Support fields from multiple formats (CamelCase and snake_case)
+  const { 
+    jobDescription, 
+    skills, 
+    companyWebsiteUrl, 
+    companyUrl, // Alternate key
+    companyName, 
+    jobTitle, 
+    experiences, 
+    experience, // Alternate key
+    education, 
+    name, 
+    email 
+  } = req.body;
 
   if (!jobDescription) {
     return res.status(400).json({ error: 'Job description is required' });
   }
 
-  const skillsList = Array.isArray(skills) 
-    ? skills 
-    : (skills ? skills.split(',').map(s => s.trim()) : []);
+  // Parse skills
+  const inputSkills = skills || [];
+  const skillsList = Array.isArray(inputSkills) 
+    ? inputSkills 
+    : (typeof inputSkills === 'string' ? inputSkills.split(',').map(s => s.trim()) : []);
 
   if (skillsList.length === 0) {
     return res.status(400).json({ error: 'At least one skill is required' });
@@ -41,7 +57,7 @@ export async function generateCv(req, res, next) {
     const userId = req.user.id;
     const userPlan = req.user.plan;
 
-    // Freemium Limit Check
+    // Freemium Limit Check (Max 5 CVs for free users)
     if (userPlan === 'free') {
       const cvCountRow = db.prepare('SELECT COUNT(*) as count FROM cv_slots WHERE user_id = ?').get(userId);
       const cvCount = cvCountRow ? cvCountRow.count : 0;
@@ -55,61 +71,69 @@ export async function generateCv(req, res, next) {
       }
     }
 
-    // Step 1: Optional Web Scraping
+    // Step 1: Optional Web Scraping (scans either companyUrl or companyWebsiteUrl)
+    const targetUrl = companyUrl || companyWebsiteUrl;
     let companyData = null;
     let targetCompanyName = companyName || 'Target Company';
 
-    if (companyWebsiteUrl) {
+    if (targetUrl) {
       try {
-        companyData = await ScraperService.scanWebsite(companyWebsiteUrl);
+        companyData = await ScraperService.scanWebsite(targetUrl);
         if (companyData && companyData.title && !companyName) {
           targetCompanyName = companyData.title.split('|')[0].split('-')[0].trim();
         }
       } catch (scrapingErr) {
-        console.warn(`Scraping failed for ${companyWebsiteUrl}, proceeding without scraped data:`, scrapingErr.message);
+        console.warn(`Scraping failed for ${targetUrl}, proceeding without scraped data:`, scrapingErr.message);
       }
     }
 
-    // Step 2: Content Generation via AI Service (or intelligent rule-based fallbacks)
+    // Step 2: Content Generation via AI Service
     const whyThisRole = await AiService.generateWhyThisRole(jobDescription, companyData);
 
-    // Default placeholder experiences if candidate did not provide any
-    const baseExperiences = experiences && experiences.length > 0 ? experiences : [
+    // Default/Fallback experiences (STAR compliant bullets)
+    const rawExperiences = experience || experiences;
+    const baseExperiences = rawExperiences && rawExperiences.length > 0 ? rawExperiences : [
       {
         role: 'Senior Software Engineer',
         company: 'InnovateTech Corp',
         startDate: '2023-01',
         endDate: 'Present',
-        description: 'Design and develop robust Node.js and React web applications, optimizing API performance and leading architectural refactoring.'
+        description: 'Design and develop robust Node.js and React web applications, optimizing API performance and leading architectural refactoring.\n• STAR Action: Spearheaded migration of legacy services to microservices, reducing load times by 30% and modernizing the developer experience.'
       },
       {
         role: 'Full Stack Developer',
         company: 'DevSolutions Inc',
         startDate: '2020-06',
         endDate: '2022-12',
-        description: 'Built scalable backend microservices, designed relational database schemas, and integrated third-party secure APIs.'
+        description: 'Built scalable backend microservices, designed relational database schemas, and integrated third-party secure APIs.\n• STAR Action: Designed secure payment flow integration, reducing transaction checkout friction by 12% and capturing $40k additional monthly revenue.'
       }
     ];
 
     const tailoredExperiences = await AiService.tailorExperience(baseExperiences, jobDescription, skillsList);
 
-    // Candidate name extraction (capitalized prefix of user's email)
+    // Standardize User Details / Placeholders for omitted personal info
     const emailPrefix = req.user.email.split('@')[0];
-    const candidateName = emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1) || 'Candidate';
+    const defaultCandidateName = emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1);
+    
+    // Check if user chose to leave name/email blank
+    const candidateName = name || defaultCandidateName || '[NAME - TO BE FILLED IN]';
+    const candidateEmail = email || req.user.email || '[EMAIL - TO BE FILLED IN]';
+
+    const inputEducation = education && education.length > 0 ? education : [
+      {
+        degree: 'Bachelor of Science in Computer Science',
+        school: 'State Technical University',
+        year: '2020'
+      }
+    ];
 
     const cvData = {
       name: candidateName,
-      email: req.user.email,
+      email: candidateEmail,
       whyThisRole,
       skills: skillsList,
       experience: tailoredExperiences,
-      education: [
-        {
-          degree: 'Bachelor of Science in Computer Science',
-          school: 'State Technical University',
-          year: '2020'
-        }
-      ]
+      education: inputEducation
     };
 
     // Step 3: Write PDF & JSON Data files
@@ -153,29 +177,32 @@ export async function generateCv(req, res, next) {
 
 /**
  * Preview adapted CV structure (Free & Premium, no limits, no DB write)
+ * POST /api/cv/preview
  */
 export async function previewCv(req, res, next) {
-  const { jobDescription, skills, companyWebsiteUrl, companyName, experiences } = req.body;
+  const { jobDescription, skills, companyWebsiteUrl, companyUrl, companyName, experiences, experience } = req.body;
 
   if (!jobDescription) {
     return res.status(400).json({ error: 'Job description is required' });
   }
 
-  const skillsList = Array.isArray(skills) 
-    ? skills 
-    : (skills ? skills.split(',').map(s => s.trim()) : []);
+  const inputSkills = skills || [];
+  const skillsList = Array.isArray(inputSkills) 
+    ? inputSkills 
+    : (typeof inputSkills === 'string' ? inputSkills.split(',').map(s => s.trim()) : []);
 
   if (skillsList.length === 0) {
     return res.status(400).json({ error: 'At least one skill is required' });
   }
 
   try {
+    const targetUrl = companyUrl || companyWebsiteUrl;
     let companyData = null;
     let targetCompanyName = companyName || 'Target Company';
 
-    if (companyWebsiteUrl) {
+    if (targetUrl) {
       try {
-        companyData = await ScraperService.scanWebsite(companyWebsiteUrl);
+        companyData = await ScraperService.scanWebsite(targetUrl);
         if (companyData && companyData.title && !companyName) {
           targetCompanyName = companyData.title.split('|')[0].split('-')[0].trim();
         }
@@ -186,20 +213,21 @@ export async function previewCv(req, res, next) {
 
     const whyThisRole = await AiService.generateWhyThisRole(jobDescription, companyData);
 
-    const baseExperiences = experiences && experiences.length > 0 ? experiences : [
+    const rawExperiences = experience || experiences;
+    const baseExperiences = rawExperiences && rawExperiences.length > 0 ? rawExperiences : [
       {
         role: 'Senior Software Engineer',
         company: 'InnovateTech Corp',
         startDate: '2023-01',
         endDate: 'Present',
-        description: 'Design and develop robust Node.js and React web applications, optimizing API performance and leading architectural refactoring.'
+        description: 'Design and develop robust Node.js and React web applications, optimizing API performance and leading architectural refactoring.\n• STAR Action: Spearheaded migration of legacy services to microservices, reducing load times by 30% and modernizing the developer experience.'
       },
       {
         role: 'Full Stack Developer',
         company: 'DevSolutions Inc',
         startDate: '2020-06',
         endDate: '2022-12',
-        description: 'Built scalable backend microservices, designed relational database schemas, and integrated third-party secure APIs.'
+        description: 'Built scalable backend microservices, designed relational database schemas, and integrated third-party secure APIs.\n• STAR Action: Designed secure payment flow integration, reducing transaction checkout friction by 12% and capturing $40k additional monthly revenue.'
       }
     ];
 
@@ -236,10 +264,16 @@ export async function previewCv(req, res, next) {
 
 /**
  * Refine CV content interactively (Premium feature)
+ * POST /api/cv/refine/:id or POST /api/cv/premium/refine
  */
 export async function refineCv(req, res, next) {
-  const { id } = req.params;
+  // Support both body-based cvId (premium/refine) and url-based id (:id/refine)
+  const id = req.params.id || req.body.cvId;
   const { instruction } = req.body;
+
+  if (!id) {
+    return res.status(400).json({ error: 'CV ID is required for refinement' });
+  }
 
   if (!instruction) {
     return res.status(400).json({ error: 'Refinement instruction is required' });
@@ -294,7 +328,92 @@ export async function refineCv(req, res, next) {
 }
 
 /**
+ * Fetch a saved CV's full details
+ * GET /api/cv/:id
+ */
+export async function getCvDetails(req, res, next) {
+  const { id } = req.params;
+  const db = getDatabase();
+
+  try {
+    const userId = req.user.id;
+    const cvSlot = db.prepare('SELECT * FROM cv_slots WHERE id = ? AND user_id = ?').get(id, userId);
+
+    if (!cvSlot) {
+      return res.status(404).json({ error: 'CV record not found or access denied' });
+    }
+
+    // Attempt to load associated structured JSON data
+    const jsonPath = path.resolve(uploadDir, `tailored-cv-${id}.json`);
+    let cvData = null;
+    if (fs.existsSync(jsonPath)) {
+      try {
+        cvData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+      } catch (err) {
+        console.error(`Error parsing JSON data file for CV ${id}:`, err.message);
+      }
+    }
+
+    return res.json({
+      id: cvSlot.id,
+      jobTitle: cvSlot.job_title,
+      companyName: cvSlot.company_name,
+      jobDescription: cvSlot.job_description,
+      status: cvSlot.status,
+      createdAt: cvSlot.created_at,
+      cvData,
+      downloadUrl: `/api/cv/${id}/download`
+    });
+  } catch (error) {
+    console.error('Error fetching CV details:', error);
+    return res.status(500).json({ error: 'Internal server error fetching CV details' });
+  }
+}
+
+/**
+ * List user's CVs with pagination support
+ * GET /api/cv/history
+ */
+export async function historyCvs(req, res, next) {
+  const db = getDatabase();
+
+  try {
+    const userId = req.user.id;
+    
+    // Parse pagination parameters (default: page 1, limit 10)
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = (page - 1) * limit;
+
+    // Get total count of CV slots
+    const totalRow = db.prepare('SELECT COUNT(*) as count FROM cv_slots WHERE user_id = ?').get(userId);
+    const total = totalRow ? totalRow.count : 0;
+
+    // Get paginated CV slots
+    const cvs = db.prepare(`
+      SELECT id, job_title as jobTitle, company_name as companyName, status, created_at as createdAt
+      FROM cv_slots
+      WHERE user_id = ?
+      ORDER BY created_at DESC
+      LIMIT ? OFFSET ?
+    `).all(userId, limit, offset);
+
+    return res.json({
+      cvs,
+      total,
+      page,
+      limit,
+      pages: Math.ceil(total / limit)
+    });
+  } catch (error) {
+    console.error('Error fetching CV history:', error);
+    return res.status(500).json({ error: 'Internal server error fetching CV history' });
+  }
+}
+
+/**
  * Download a tailored CV PDF
+ * GET /api/cv/:id/download
  */
 export async function downloadCv(req, res, next) {
   const { id } = req.params;
@@ -325,6 +444,7 @@ export async function downloadCv(req, res, next) {
 
 /**
  * Fetch list of generated CV slots for authenticated user
+ * GET /api/cv/list
  */
 export async function listCvs(req, res, next) {
   const db = getDatabase();
