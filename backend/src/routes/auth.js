@@ -1,11 +1,17 @@
 import { Router } from 'express';
-// import { login, register, getProfile } from '../controllers/authController.js';
-// import { authenticateToken } from '../middleware/authMiddleware.js';
+import { signup, login, getProfile } from '../controllers/authController.js';
+import { authenticateToken } from '../middleware/authMiddleware.js';
 
 const router = Router();
 
-// router.post('/register', register);
-// router.post('/login', login);
-// router.get('/profile', authenticateToken, getProfile);
+// Support both /signup and /register for maximum frontend compatibility
+router.post('/signup', signup);
+router.post('/register', signup);
+
+router.post('/login', login);
+
+// Support both /profile and /me for profile retrieval
+router.get('/profile', authenticateToken, getProfile);
+router.get('/me', authenticateToken, getProfile);
 
 export default router;

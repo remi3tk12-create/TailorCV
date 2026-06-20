@@ -1,5 +1,4 @@
-import sqlite3 from 'sqlite3';
-import { open } from 'sqlite';
+import Database from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -11,23 +10,22 @@ const dbPath = process.env.DATABASE_PATH || path.resolve(__dirname, '../../tailo
 
 let db = null;
 
-export async function getDatabase() {
+export function getDatabase() {
   if (db) return db;
 
-  db = await open({
-    filename: dbPath,
-    driver: sqlite3.Database
-  });
-
-  console.log(`Database connected: ${dbPath}`);
+  db = new Database(dbPath);
+  console.log(`Database connected (better-sqlite3): ${dbPath}`);
   return db;
 }
 
-export async function initDatabase() {
-  const database = await getDatabase();
+export function initDatabase() {
+  const database = getDatabase();
   
+  // Enable foreign keys
+  database.pragma('foreign_keys = ON');
+
   // Create tables if they do not exist
-  await database.exec(`
+  database.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       email TEXT UNIQUE NOT NULL,
