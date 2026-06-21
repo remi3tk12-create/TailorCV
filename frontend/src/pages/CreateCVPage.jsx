@@ -125,13 +125,18 @@ export default function CreateCVPage() {
       const serverMessage = err.response?.data?.message || err.response?.data?.error;
       const displayError = serverMessage 
         ? `${serverMessage}` 
-        : 'Failed to communicate with the tailoring engine. Please verify the backend status.';
+        : 'Failed to communicate with the tailoring engine. Redirecting to mock CV preview fallback in 4 seconds...';
       
       setError(displayError);
       setLoading(false);
 
       // Scroll to error
       window.scrollTo({ top: 0, behavior: 'smooth' });
+
+      // On failure: show error message, fallback to mock data after timeout
+      setTimeout(() => {
+        navigate('/preview/mock-cv');
+      }, 4000);
     }
   };
 
