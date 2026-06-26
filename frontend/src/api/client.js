@@ -1,7 +1,11 @@
 import axios from 'axios';
 
+// In production (when served by the backend on the same origin), use relative /api path.
+// In Vite dev mode, Vite proxies /api requests to the backend (configured in vite.config.js).
+const API_BASE = import.meta.env.PROD ? '/api' : 'http://localhost:3000/api';
+
 const client = axios.create({
-  baseURL: 'http://localhost:3001/api',
+  baseURL: API_BASE,
   headers: {
     'Content-Type': 'application/json',
   },
